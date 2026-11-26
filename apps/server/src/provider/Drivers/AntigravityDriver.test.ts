@@ -111,6 +111,7 @@ const makeHarness = Effect.fn("makeAntigravityDriverHarness")(function* (
       executablePath,
       [
         "#!/bin/sh",
+        'if [ "$1" = "-p" ]; then printf \'{"status":"ERROR","response":"mock"}\\n\'; exit 0; fi',
         ...(options.loginRequired
           ? [`printf '%s\\n' ${shellQuote(ANTIGRAVITY_AUTH_STDOUT_PREFIX + authorizationUrl)}`]
           : []),
@@ -205,6 +206,7 @@ const makeHarness = Effect.fn("makeAntigravityDriverHarness")(function* (
       if (command._tag !== "StandardCommand")
         return yield* Effect.die("Unexpected process pipeline.");
       const handle = yield* spawner.spawn(command);
+      if (command.args[0] === "-p") return handle;
       const environment = command.options.env ?? {};
       const env = (name: string) => {
         const value = environment[name];
