@@ -27,50 +27,63 @@ if (hostPlatform !== "darwin") {
     NodePath.resolve(root, file),
   );
   const output = values.output ?? NodePath.resolve(root, "build", values.arch, "t3-apple-speech");
-  let current = false;
-  try {
-    current =
-      NodeFS.statSync(output).mtimeMs >=
-      Math.max(
-        ...sources.map((source) => NodeFS.statSync(source).mtimeMs),
-        NodeFS.statSync(NodeURL.fileURLToPath(import.meta.url)).mtimeMs,
-      );
-  } catch {}
-  if (!current) {
+  const prebuilt = process.env.T3CODE_DESKTOP_PREBUILT_APPLE_SPEECH;
+  if (prebuilt && NodeFS.existsSync(prebuilt)) {
     NodeFS.mkdirSync(NodePath.dirname(output), { recursive: true });
-    const temporary = `${output}.${process.pid}.tmp`;
-    const slices = targets.map((target) => `${temporary}.${target}`);
+    NodeFS.copyFileSync(prebuilt, output);
+    NodeFS.chmodSync(output, 0o755);
+  } else {
+    let current = false;
     try {
-      targets.forEach((target, index) =>
+      current =
+        NodeFS.statSync(output).mtimeMs >=
+        Math.max(
+          ...sources.map((source) => NodeFS.statSync(source).mtimeMs),
+          NodeFS.statSync(NodeURL.fileURLToPath(import.meta.url)).mtimeMs,
+        );
+    } catch {}
+    if (!current) {
+      NodeFS.mkdirSync(NodePath.dirname(output), { recursive: true });
+      const temporary = `${output}.${process.pid}.tmp`;
+      const slices = targets.map((target) => `${temporary}.${target}`);
+      try {
+        targets.forEach((target, index) =>
+          NodeChildProcess.execFileSync(
+            "xcrun",
+            [
+              "swiftc",
+              "-O",
+              "-swift-version",
+              "5",
+              "-parse-as-library",
+              "-target",
+              `${target}-apple-macos26.0`,
+              ...sources,
+              "-o",
+              slices[index],
+            ],
+            { stdio: "inherit" },
+          ),
+        );
         NodeChildProcess.execFileSync(
           "xcrun",
-          [
-            "swiftc",
-            "-O",
-            "-swift-version",
-            "5",
-            "-parse-as-library",
-            "-target",
-            `${target}-apple-macos26.0`,
-            ...sources,
-            "-o",
-            slices[index],
-          ],
-          { stdio: "inherit" },
-        ),
-      );
-      NodeChildProcess.execFileSync("xcrun", ["lipo", "-create", ...slices, "-output", temporary], {
-        stdio: "inherit",
-      });
-      NodeFS.renameSync(temporary, output);
-    } catch (cause) {
-      if (required)
-        throw new Error("Building the Apple Speech helper requires Xcode 26 or later.", { cause });
-      console.warn(
-        "Skipping the Apple Speech helper (needs Xcode 26 or later); on-device Mac dictation is unavailable in this build.",
-      );
-    } finally {
-      for (const file of [temporary, ...slices]) NodeFS.rmSync(file, { force: true });
+          ["lipo", "-create", ...slices, "-output", temporary],
+          {
+            stdio: "inherit",
+          },
+        );
+        NodeFS.renameSync(temporary, output);
+      } catch (cause) {
+        if (required)
+          throw new Error("Building the Apple Speech helper requires Xcode 26 or later.", {
+            cause,
+          });
+        console.warn(
+          "Skipping the Apple Speech helper (needs Xcode 26 or later); on-device Mac dictation is unavailable in this build.",
+        );
+      } finally {
+        for (const file of [temporary, ...slices]) NodeFS.rmSync(file, { force: true });
+      }
     }
   }
 }
